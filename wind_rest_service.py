@@ -30,6 +30,7 @@ rec = api.namespace('wind', description='')
 ERROR_CODE_MSG_DIC = {
     -40522005: "不支持的万得代码",
     -40522003: "非法请求",
+    -40521004: "请求发送失败。无法发送请求，请连接网络",
     -40520007: "没有可用数据",
     -40521009: "数据解码失败。检查输入参数是否正确，如：日期参数注意大小月月末及短二月",
     -40521010: "网络超时",
@@ -101,10 +102,24 @@ class ReceiveWSET(Resource):
             return {'error_code': ret_data.ErrorCode, 'message': msg}, 404
 
         data_count = len(ret_data.Data)
-        if data_count > 0:
+        # if data_count > 0:
             # print('ret_data.Fields\n', ret_data.Fields)
-            ret_data.Data[0] = [format_2_date_str(dt) for dt in ret_data.Data[0]]
+            # ret_data.Data[0] = [format_2_date_str(dt) for dt in ret_data.Data[0]]
             # print('ret_data.Data\n', ret_data.Data)
+
+        for n_data in range(data_count):
+            data = ret_data.Data[n_data]
+            data_len2 = len(data)
+            if data_len2 > 0:
+                # 取出第一个部位None的数据
+                for item_check in data:
+                    if item_check is not None:
+                        break
+                # 进行类型检查，如果发现是 datetime, date 类型之一，则进行类型转换
+                if item_check is not None and type(item_check) in (datetime, date):
+                    ret_data.Data[n_data] = [format_2_date_str(dt) for dt in data]
+                    logger.info('%d column["%s"]  date to str', n_data, ret_data.Fields[n_data])
+
         ret_df = pd.DataFrame(ret_data.Data, index=ret_data.Fields, columns=ret_data.Codes)
         # print('ret_df\n', ret_df)
         ret_dic = ret_df.to_dict()
@@ -158,8 +173,15 @@ class ReceiveWSD(Resource):
                     ret_data.Data[n_data] = [format_2_date_str(dt) for dt in data]
                     logger.info('%d column["%s"]  date to str', n_data, ret_data.Fields[n_data])
         # 组成 DataFrame
-        ret_df = pd.DataFrame(ret_data.Data, index=ret_data.Fields,
-                              columns=[format_2_date_str(dt) for dt in ret_data.Times])
+        if len(ret_data.Codes) == 1:
+            ret_df = pd.DataFrame(ret_data.Data, index=ret_data.Fields,
+                                  columns=[format_2_date_str(dt) for dt in ret_data.Times])
+        elif len(ret_data.Times) == 1:
+            ret_df = pd.DataFrame(ret_data.Data, index=ret_data.Fields,
+                                  columns=ret_data.Codes)
+        else:
+            ret_df = pd.DataFrame(ret_data.Data, index=ret_data.Codes,
+                                  columns=[format_2_date_str(dt) for dt in ret_data.Times])
         # print(ret_df)
         ret_dic = ret_df.to_dict()
         # print('ret_dic:\n', ret_dic)
@@ -281,7 +303,8 @@ class ReceiveTdaysoffset(Resource):
         error_code = ret_data.ErrorCode
         if error_code != 0:
             msg = ERROR_CODE_MSG_DIC.setdefault(error_code, "")
-            logger.error('tdaysoffset("%s", "%s", "%s") ErrorCode=%d %s' % (offset, begin_time, options, error_code, msg))
+            logger.error(
+                'tdaysoffset("%s", "%s", "%s") ErrorCode=%d %s' % (offset, begin_time, options, error_code, msg))
             return {'error_code': ret_data.ErrorCode, 'message': msg}, 404
         # if ret_data.ErrorCode != 0:
         #     logger.error(
